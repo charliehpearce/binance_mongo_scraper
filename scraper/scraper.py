@@ -4,6 +4,7 @@ import pymongo
 import websocket
 import json
 import os
+import threading
 import requests
 import ast
 
@@ -75,11 +76,11 @@ class BinanceSocket:
 def create_mongoDB_client(host:str, port:int):
     return pymongo.MongoClient(host, port)
 
-# Queue to add to DB
 if __name__ == "__main__":
     currency_pairs = ['btcusdt','XRPUSDT']
     bs = BinanceSocket(currency_pair='BTCUSDT', LOB_depth=20)
 
+    #add queue system to add to DB
 """
 Notes:
 Will probably need to implement a Queue system not to overload the db 
