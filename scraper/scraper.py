@@ -1,65 +1,29 @@
 # Scrapy myscrapeface
-from types import DynamicClassAttribute
-from requests import status_codes
-import pymongo
 import websocket
 import json
-import threading
-import requests
 import ast
+import datetime
+from pymongo import MongoClient
+import threading
 
-# Orderbook to store info coming in from binance
-class OrderBook:
-    """
-    Creates a locally cached order book for a pair
-    """
-    def __init__(self, currency_pair, depth) -> None:
-        self.currency_pair = currency_pair
-        self.depth = depth
-        self.bids = {}
-        self.asks = {}
-        self.get_depth_ss() #initialize OB 
-        print(self.return_order_book())
-
-    def get_depth_ss(self):
-        url = f'https://api.binance.com/api/v3/depth?symbol={self.currency_pair}&limit={self.depth}'
-        response = requests.get(url)
-        print(f'response from server: {response.status_code}')
-
-        book_dict = ast.literal_eval(response.content.decode('UTF-8'))
-        for bid in book_dict['bids']:
-            self.bids[bid[0]] = bid[1]
-        for ask in book_dict['asks']:
-            self.asks[ask[0]] = ask[1]
+class MongoDBClient:
+    def __init__(self, host, port, db_name, db_collection) -> None:
+        self.client = MongoClient(host=host, port=port)
+        self.db_name = db_name
+        self.db_collection = db_collection
     
-    def update_asks(self, updates):
-        #update order book
-        for upd in updates:
-            if float(upd[1]) == 0:
-                # check to see if the quantity is 0, remove if True
-                self.asks.pop(upd[0])
-            else:
-                self.asks[upd[0]] = upd[1]
-
-    def update_bids(self, updates):
-        #update order book
-        for upd in updates:
-            if float(upd[1]) == 0:
-                # check to see if the quantity is 0, remove if True
-                self.bids.pop(upd[0])
-            else:
-                self.bids[upd[0]] = upd[1]
-            
-    def return_order_book(self):
-        return {'bids':self.bids, 'asks':self.asks}
+    def post_item(self, item:dict):
+        db = self.client[self.db_name]
+        colxn = db[self.db_collection]
+        id = colxn.insert_one(item).inserted_id
+        print(id)
 
 # Open socket to binance
 class BinanceSocket:
     def __init__(self, currency_pair:str, LOB_depth:int) -> None:
         self.currency_pair = currency_pair
         self.LOB_depth = LOB_depth
-        self.ob = OrderBook(currency_pair=currency_pair, depth=LOB_depth)
-        self.endpoint = self.generate_endpoint() # order book cache
+        self.endpoint = self.generate_endpoint() 
         self.consume()
 
     def generate_endpoint(self):
@@ -73,12 +37,19 @@ class BinanceSocket:
         #print(message)
         # deal with message (add to mongodb)
         dict_response = ast.literal_eval(message)
+        print('response recieved')
         
+        """
         if dict_response['b'] != []:
             self.ob.update_bids(dict_response['b'])
         if dict_response['a'] != []:
-            self.ob.update_asks(dict_response['a'])
-        print(self.ob.return_order_book())
+            self.ob.update_asks(dict_response['a'])        
+        """
+        payload = {'timestamp':datetime.datetime.utcnow(),\
+            'bids':dict_response['b'],'asks':dict_response['a']}
+        
+        print(payload['timestamp'])
+        #mdb_client.post_item(payload)
 
     @staticmethod
     def on_ping(ws, message):
@@ -95,15 +66,13 @@ class BinanceSocket:
             on_ping=self.on_ping, on_pong= self.on_pong, on_open=self.open_socket)
         socket_app.run_forever()
 
-# Open mongoDB client 
-def create_mongoDB_client(host:str, port:int):
-    return pymongo.MongoClient(host, port)
-
-def send_ob_to_mongo(mongo_client, ob):
-    pass
 
 if __name__ == "__main__":
-    currency_pairs = ['btcusdt','XRPUSDT']
+    currency_pairs = ['btcusdt',]
+    
+    mdb_client = MongoDBClient(host="host.docker.internal", port=27017, db_name='binance10'\
+            , db_collection='BTCUSDT')
+    
     bs = BinanceSocket(currency_pair='BTCUSDT', LOB_depth=1000)
 
 """
@@ -113,6 +82,8 @@ connection
 Quantity should be expressed as a float rather than the current string system
 
 To Do:
-Implement MongoDB connection.
-Spawn different threads for each websocket cxn.
+Think about how to handle order book caching
+- periodically get order book snapshot
+- updates between snapshots
+- collect data per day and dump at end of period
 """

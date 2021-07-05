@@ -4,9 +4,6 @@ services:
  mongodb:
   image: mongo
   container_name: mongodb
-  environment:
-  - PUID=1000
-  - PGID=1000
   volumes:
   - ./mongodb/db:/data/db
   ports:
