@@ -1,4 +1,4 @@
-# Orderbook to store info coming in from binance
+# Orderbook caching
 class OrderBook:
     """
     Creates a locally cached order book for a pair

@@ -5,16 +5,16 @@ import ast
 import datetime
 from pymongo import MongoClient
 import threading
+import requests
 
 class MongoDBClient:
-    def __init__(self, host, port, db_name, db_collection) -> None:
+    def __init__(self, host, port, db_name) -> None:
         self.client = MongoClient(host=host, port=port)
         self.db_name = db_name
-        self.db_collection = db_collection
     
-    def post_item(self, item:dict):
+    def post_item(self, item:dict, collection:str):
         db = self.client[self.db_name]
-        colxn = db[self.db_collection]
+        colxn = db[collection]
         id = colxn.insert_one(item).inserted_id
         print(id)
 
@@ -24,32 +24,32 @@ class BinanceSocket:
         self.currency_pair = currency_pair
         self.LOB_depth = LOB_depth
         self.endpoint = self.generate_endpoint() 
+        self.mdb_client = MongoDBClient(host="host.docker.internal", port=27017, db_name='binance')
+        self.get_ob_ss()
+        
         self.consume()
+
+    def get_ob_ss(self):
+        url = f'https://api.binance.com/api/v3/depth?symbol={self.currency_pair}&limit={self.LOB_depth}'
+        response = requests.get(url)
+        print(f'response from server: {response.status_code}')
+        book_dict = ast.literal_eval(response.content.decode('UTF-8'))
+        self.mdb_client.post_item(book_dict, f'{self.currency_pair}_fullbooks')
 
     def generate_endpoint(self):
         return(f'wss://stream.binance.com:9443/ws/{self.currency_pair.lower()}@depth@100ms')
  
     def open_socket(self, ws):
-        #ws.send(json.dumps(self.endpoint)) ##????
         print('socket opened')
 
     def on_message(self, ws, message):
-        #print(message)
-        # deal with message (add to mongodb)
         dict_response = ast.literal_eval(message)
-        print('response recieved')
-        
-        """
-        if dict_response['b'] != []:
-            self.ob.update_bids(dict_response['b'])
-        if dict_response['a'] != []:
-            self.ob.update_asks(dict_response['a'])        
-        """
+
         payload = {'timestamp':datetime.datetime.utcnow(),\
             'bids':dict_response['b'],'asks':dict_response['a']}
         
         print(payload['timestamp'])
-        #mdb_client.post_item(payload)
+        self.mdb_client.post_item(payload, 'BTCUSDT')
 
     @staticmethod
     def on_ping(ws, message):
@@ -68,11 +68,7 @@ class BinanceSocket:
 
 
 if __name__ == "__main__":
-    currency_pairs = ['btcusdt',]
-    
-    mdb_client = MongoDBClient(host="host.docker.internal", port=27017, db_name='binance10'\
-            , db_collection='BTCUSDT')
-    
+    currency_pairs = ['btcusdt','','']    
     bs = BinanceSocket(currency_pair='BTCUSDT', LOB_depth=1000)
 
 """
@@ -84,6 +80,5 @@ Quantity should be expressed as a float rather than the current string system
 To Do:
 Think about how to handle order book caching
 - periodically get order book snapshot
-- updates between snapshots
-- collect data per day and dump at end of period
+- crontab backup files to GCS (per day? then reset db?)
 """
